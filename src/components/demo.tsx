@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,7 +120,7 @@ export const DemoGamePlay = () => {
                     </Card>
                 </div>
                 <div>
-                    <LeaderBoard />
+                    <LeaderBoard isDemo={true} />
                 </div>
             </div>
         </Layout>
