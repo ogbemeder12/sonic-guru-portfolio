@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { supabase } from "@/lib/supabase";
 
 interface Game {
   id: string;
@@ -62,16 +63,10 @@ export const CreateBet = () => {
 
     try {
       setIsCreating(true);
-      console.log("Converting amount to lamports...");
       const lamports = parseFloat(amount) * LAMPORTS_PER_SOL;
 
-      console.log("Checking wallet balance...");
       const balance = await connection.getBalance(publicKey);
-      console.log("Current balance:", balance/LAMPORTS_PER_SOL, "SOL");
-      console.log("Required amount:", lamports/LAMPORTS_PER_SOL, "SOL");
-      
       if (balance < lamports) {
-        console.log("Insufficient balance");
         toast({
           title: "Insufficient balance",
           description: `Your wallet has ${balance/LAMPORTS_PER_SOL} SOL but needs ${lamports/LAMPORTS_PER_SOL} SOL`,
@@ -80,62 +75,56 @@ export const CreateBet = () => {
         return;
       }
 
-      console.log("Creating escrow account...");
       const escrowKeypair = Keypair.generate();
       const rentExemptionAmount = await connection.getMinimumBalanceForRentExemption(0);
       
       const transaction = new Transaction();
-      
-      // Add recent blockhash
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
+      transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
       transaction.feePayer = publicKey;
 
-      // Create escrow account
       transaction.add(
         SystemProgram.createAccount({
           fromPubkey: publicKey,
           newAccountPubkey: escrowKeypair.publicKey,
-          lamports: rentExemptionAmount + lamports, // Rent exemption + game amount
+          lamports: rentExemptionAmount + lamports,
           space: 0,
           programId: SystemProgram.programId,
         })
       );
 
-      console.log("Sending transaction...");
       try {
         const signature = await sendTransaction(transaction, connection, {
           skipPreflight: false,
           preflightCommitment: 'confirmed',
           maxRetries: 5,
-          signers: [escrowKeypair], // Include the escrow keypair as a signer
+          signers: [escrowKeypair],
         });
-        console.log("Transaction signature:", signature);
         
-        console.log("Confirming transaction...");
         const confirmation = await connection.confirmTransaction(signature, 'confirmed');
         
         if (confirmation.value.err) {
           throw new Error(`Transaction failed: ${confirmation.value.err.toString()}`);
         }
-        
-        console.log("Transaction confirmed");
-        console.log("Escrow public key:", escrowKeypair.publicKey.toString());
 
-        const newGame: Game = {
-          id: Date.now().toString(),
-          creator: username,
-          creatorWallet: publicKey.toString(),
-          amount: parseFloat(amount),
-          maxPlayers: 2,
-          currentPlayers: [username],
-          status: 'open',
-          escrowPubkey: escrowKeypair.publicKey.toString(),
-        };
+        // Create game in Supabase
+        const { data: game, error: createError } = await supabase
+          .from('games')
+          .insert([
+            {
+              creator_id: username,
+              creator_wallet: publicKey.toString(),
+              amount: parseFloat(amount),
+              status: 'open',
+              is_demo: false,
+              escrow_pubkey: escrowKeypair.publicKey.toString(),
+            }
+          ])
+          .select()
+          .single();
 
-        console.log("Saving game to localStorage:", newGame);
-        const existingGames = JSON.parse(localStorage.getItem("games") || "[]");
-        localStorage.setItem("games", JSON.stringify([...existingGames, newGame]));
+        if (createError) {
+          throw new Error(`Failed to create game: ${createError.message}`);
+        }
 
         const audio = new Audio("/sounds/create-game.mp3");
         audio.play();
@@ -145,7 +134,7 @@ export const CreateBet = () => {
           description: `Successfully created game and transferred ${amount} SOL`,
         });
 
-        navigate("/game?mode=multiplayer&gameId=" + newGame.id);
+        navigate(`/game?mode=multiplayer&gameId=${game.id}`);
       } catch (txError) {
         console.error("Transaction error:", txError);
         throw new Error(`Transaction failed: ${txError.message}`);

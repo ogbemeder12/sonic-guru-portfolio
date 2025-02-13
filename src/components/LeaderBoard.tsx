@@ -1,46 +1,65 @@
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 interface PlayerScore {
   username: string;
   points: number;
-  gamesWon: number;
+  games_won: number;
+  wallet_address?: string;
 }
 
-export const LeaderBoard = () => {
+export const LeaderBoard = ({ isDemo = false }: { isDemo?: boolean }) => {
   const [leaders, setLeaders] = useState<PlayerScore[]>([]);
 
   useEffect(() => {
-    // Get scores from localStorage
-    const games = JSON.parse(localStorage.getItem("games") || "[]");
-    const players = new Map<string, PlayerScore>();
+    const fetchLeaders = async () => {
+      const { data, error } = await supabase
+        .from('leaderboard')
+        .select('username, points, games_won, wallet_address')
+        .eq('is_demo', isDemo)
+        .order('points', { ascending: false })
+        .limit(5);
 
-    games.forEach((game: any) => {
-      if (game.winner) {
-        const player = players.get(game.winner) || {
-          username: game.winner,
-          points: 0,
-          gamesWon: 0,
-        };
-        player.points += game.amount * 2; // Winner gets double the bet amount
-        player.gamesWon += 1;
-        players.set(game.winner, player);
+      if (error) {
+        console.error('Error fetching leaderboard:', error);
+        return;
       }
-    });
 
-    // Convert to array and sort by points
-    const leaderArray = Array.from(players.values()).sort(
-      (a, b) => b.points - a.points
-    );
-    setLeaders(leaderArray);
-  }, []);
+      setLeaders(data || []);
+    };
+
+    fetchLeaders();
+
+    // Subscribe to realtime updates
+    const channel = supabase
+      .channel('leaderboard_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'leaderboard',
+          filter: `is_demo=eq.${isDemo}`,
+        },
+        () => {
+          fetchLeaders();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isDemo]);
 
   return (
     <Card className="border-slate-800 bg-black/50 backdrop-blur-sm">
       <CardHeader>
         <CardTitle className="font-game text-lg text-primary animate-glow">
-          Top Players
+          {isDemo ? "Demo Leaderboard" : "Top Players"}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -66,7 +85,7 @@ export const LeaderBoard = () => {
                 <TableCell className="font-game">#{index + 1}</TableCell>
                 <TableCell>{player.username}</TableCell>
                 <TableCell className="text-right">{player.points} SOL</TableCell>
-                <TableCell className="text-right">{player.gamesWon}</TableCell>
+                <TableCell className="text-right">{player.games_won}</TableCell>
               </TableRow>
             ))}
           </TableBody>

@@ -39,6 +39,75 @@ export type Database = {
         }
         Relationships: []
       }
+      games: {
+        Row: {
+          amount: number
+          created_at: string
+          creator_id: string
+          creator_wallet: string | null
+          id: string
+          is_demo: boolean
+          status: string
+          updated_at: string
+          winner: string | null
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          creator_id: string
+          creator_wallet?: string | null
+          id?: string
+          is_demo?: boolean
+          status?: string
+          updated_at?: string
+          winner?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          creator_id?: string
+          creator_wallet?: string | null
+          id?: string
+          is_demo?: boolean
+          status?: string
+          updated_at?: string
+          winner?: string | null
+        }
+        Relationships: []
+      }
+      leaderboard: {
+        Row: {
+          created_at: string
+          games_won: number
+          id: string
+          is_demo: boolean
+          points: number
+          updated_at: string
+          username: string
+          wallet_address: string | null
+        }
+        Insert: {
+          created_at?: string
+          games_won?: number
+          id?: string
+          is_demo?: boolean
+          points?: number
+          updated_at?: string
+          username: string
+          wallet_address?: string | null
+        }
+        Update: {
+          created_at?: string
+          games_won?: number
+          id?: string
+          is_demo?: boolean
+          points?: number
+          updated_at?: string
+          username?: string
+          wallet_address?: string | null
+        }
+        Relationships: []
+      }
       portfolios: {
         Row: {
           amount: number

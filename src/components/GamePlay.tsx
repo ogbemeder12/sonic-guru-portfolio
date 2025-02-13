@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +7,7 @@ import { useSearchParams } from "react-router-dom";
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useRockPaperScissors } from "@/hooks/useRockPaperScissors";
 import { PublicKey } from '@solana/web3.js';
+import { supabase } from "@/lib/supabase";
 import {
   Dialog,
   DialogContent,
@@ -70,13 +70,73 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
     return 'Computer wins!';
   };
 
+  const updateLeaderboard = async (winner: string, amount: number, isWinner: boolean) => {
+    const { data: existingUser, error: fetchError } = await supabase
+      .from('leaderboard')
+      .select('*')
+      .eq('username', winner)
+      .eq('is_demo', isDemo)
+      .single();
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('Error fetching user:', fetchError);
+      return;
+    }
+
+    const points = isWinner ? amount * 2 : 0;
+    const gamesWon = isWinner ? 1 : 0;
+
+    if (existingUser) {
+      const { error: updateError } = await supabase
+        .from('leaderboard')
+        .update({
+          points: existingUser.points + points,
+          games_won: existingUser.games_won + gamesWon,
+        })
+        .eq('id', existingUser.id);
+
+      if (updateError) {
+        console.error('Error updating leaderboard:', updateError);
+      }
+    } else {
+      const { error: insertError } = await supabase
+        .from('leaderboard')
+        .insert([
+          {
+            username: winner,
+            points: points,
+            games_won: gamesWon,
+            is_demo: isDemo,
+            wallet_address: publicKey?.toString(),
+          },
+        ]);
+
+      if (insertError) {
+        console.error('Error inserting into leaderboard:', insertError);
+      }
+    }
+  };
+
   const handleGameEnd = async (result: string) => {
     if (!isDemo && gameId) {
       const games = JSON.parse(localStorage.getItem("games") || "[]");
       const currentGame = games.find((g: Game) => g.id === gameId);
       
       if (currentGame) {
-        // Update game status
+        // Update game status in Supabase
+        const { error: gameUpdateError } = await supabase
+          .from('games')
+          .update({
+            status: 'completed',
+            winner: result === 'You win!' ? localStorage.getItem("username") : 'Computer',
+          })
+          .eq('id', gameId);
+
+        if (gameUpdateError) {
+          console.error('Error updating game status:', gameUpdateError);
+        }
+
+        // Update local storage
         currentGame.status = 'completed';
         localStorage.setItem("games", JSON.stringify(games));
 
@@ -84,6 +144,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         if (result === 'You win!' && publicKey) {
           try {
             await resolveBet(gameId, publicKey);
+            await updateLeaderboard(localStorage.getItem("username") || '', currentGame.amount, true);
             toast({
               title: "Funds Transferred",
               description: "Your winnings have been sent to your wallet!",
@@ -99,6 +160,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         } else if (result === 'Computer wins!' && currentGame.creatorWallet) {
           try {
             await resolveBet(gameId, new PublicKey(currentGame.creatorWallet));
+            await updateLeaderboard('Computer', currentGame.amount, true);
             toast({
               title: "Game Ended",
               description: "Funds have been transferred to the winner.",
@@ -112,12 +174,16 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
             });
           }
         }
-
-        // Dispatch event for leaderboard update
-        const gameEndEvent = new CustomEvent('gameEnded', {
-          detail: { winner: result === 'You win!' ? localStorage.getItem("username") : 'Computer' }
-        });
-        window.dispatchEvent(gameEndEvent);
+      }
+    } else if (isDemo) {
+      // Handle demo game results
+      const username = localStorage.getItem("username");
+      if (username && result) {
+        await updateLeaderboard(
+          username,
+          1, // Demo games always worth 1 point
+          result === 'You win!'
+        );
       }
     }
   };
@@ -238,4 +304,3 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
     </>
   );
 };
-
