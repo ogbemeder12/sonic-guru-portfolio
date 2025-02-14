@@ -132,6 +132,16 @@ export const useRockPaperScissors = () => {
         return;
       }
 
+      // Verify bet amount matches creator's bet
+      if (game.amount !== betAmount) {
+        toast({
+          title: "Invalid bet amount",
+          description: "Your bet must match the creator's bet amount",
+          variant: "destructive",
+        });
+        return;
+      }
+
       // Transfer player's bet to escrow
       const escrowPubkey = new PublicKey(game.escrow_pubkey);
       const lamports = betAmount * 1000000000; // Convert SOL to lamports
@@ -157,6 +167,8 @@ export const useRockPaperScissors = () => {
           player2_id: username,
           player2_wallet: publicKey.toString(),
           total_pot: game.total_pot + betAmount,
+          player2_choice: null,
+          creator_choice: null,
         })
         .eq('id', gameId);
 

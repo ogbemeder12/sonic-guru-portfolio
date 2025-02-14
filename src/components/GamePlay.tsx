@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,34 +25,48 @@ interface Game {
   player2_wallet: string | null;
   status: 'open' | 'in-progress' | 'completed';
   winner: string | null;
+  creator_choice?: Choice;
+  player2_choice?: Choice;
+  player2_id?: string;
+  amount: number;
 }
 
 export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
   const [playerChoice, setPlayerChoice] = useState<Choice | null>(null);
-  const [computerChoice, setComputerChoice] = useState<Choice | null>(null);
+  const [opponentChoice, setOpponentChoice] = useState<Choice | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [showWaitDialog, setShowWaitDialog] = useState(false);
+  const [waitingForOpponent, setWaitingForOpponent] = useState(false);
+  const [game, setGame] = useState<Game | null>(null);
   const [searchParams] = useSearchParams();
   const gameId = searchParams.get("gameId");
   const { toast } = useToast();
   const { publicKey } = useWallet();
-  const { resolveBet } = useRockPaperScissors();
+  const { resolveBet, joinBet } = useRockPaperScissors();
+  const currentUsername = localStorage.getItem("username");
 
   useEffect(() => {
     if (gameId) {
-      const username = localStorage.getItem("username");
       const fetchGameStatus = async () => {
-        const { data: game } = await supabase
+        const { data: gameData } = await supabase
           .from('games')
           .select('*')
           .eq('id', gameId)
           .single();
         
-        if (game) {
-          if (game.creator_id === username && game.status === 'open') {
+        if (gameData) {
+          setGame(gameData);
+          if (gameData.creator_id === currentUsername && gameData.status === 'open') {
             setShowWaitDialog(true);
-          } else if (game.status === 'in-progress') {
+          } else if (gameData.status === 'in-progress') {
             setShowWaitDialog(false);
+            
+            // Check if we need to wait for opponent's choice
+            if (gameData.creator_id === currentUsername && !gameData.player2_choice) {
+              setWaitingForOpponent(true);
+            } else if (gameData.player2_id === currentUsername && !gameData.creator_choice) {
+              setWaitingForOpponent(true);
+            }
           }
         }
       };
@@ -69,9 +84,40 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
             table: 'games',
             filter: `id=eq.${gameId}`,
           },
-          (payload) => {
-            if (payload.new.status === 'in-progress') {
+          async (payload) => {
+            const updatedGame = payload.new as Game;
+            setGame(updatedGame);
+            
+            if (updatedGame.status === 'in-progress') {
               setShowWaitDialog(false);
+            }
+
+            // Check if both players have made their choices
+            if (updatedGame.creator_choice && updatedGame.player2_choice) {
+              setWaitingForOpponent(false);
+              const result = determineWinner(
+                currentUsername === updatedGame.creator_id 
+                  ? updatedGame.creator_choice 
+                  : updatedGame.player2_choice,
+                currentUsername === updatedGame.creator_id 
+                  ? updatedGame.player2_choice 
+                  : updatedGame.creator_choice
+              );
+              setResult(result);
+              setPlayerChoice(currentUsername === updatedGame.creator_id 
+                ? updatedGame.creator_choice 
+                : updatedGame.player2_choice);
+              setOpponentChoice(currentUsername === updatedGame.creator_id 
+                ? updatedGame.player2_choice 
+                : updatedGame.creator_choice);
+
+              if (result !== "It's a tie!") {
+                const winner = result === 'You win!' ? currentUsername : 
+                  (currentUsername === updatedGame.creator_id ? updatedGame.player2_id : updatedGame.creator_id);
+                if (winner) {
+                  await resolveBet(gameId, winner);
+                }
+              }
             }
           }
         )
@@ -81,66 +127,77 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         supabase.removeChannel(channel);
       };
     }
-  }, [gameId]);
+  }, [gameId, currentUsername, resolveBet]);
 
-  const getComputerChoice = (): Choice => {
-    const choices: Choice[] = ['rock', 'paper', 'scissors'];
-    return choices[Math.floor(Math.random() * choices.length)];
-  };
-
-  const determineWinner = (player: Choice, computer: Choice) => {
-    if (player === computer) return "It's a tie!";
+  const determineWinner = (playerChoice: Choice, opponentChoice: Choice) => {
+    if (playerChoice === opponentChoice) return "It's a tie!";
     if (
-      (player === 'rock' && computer === 'scissors') ||
-      (player === 'paper' && computer === 'rock') ||
-      (player === 'scissors' && computer === 'paper')
+      (playerChoice === 'rock' && opponentChoice === 'scissors') ||
+      (playerChoice === 'paper' && opponentChoice === 'rock') ||
+      (playerChoice === 'scissors' && opponentChoice === 'paper')
     ) {
       return 'You win!';
     }
-    return 'Computer wins!';
+    return 'Opponent wins!';
   };
 
   const handleChoice = async (choice: Choice) => {
-    if (!isDemo && gameId) {
-      const username = localStorage.getItem("username");
-      const { data: game } = await supabase
+    if (!isDemo && gameId && game) {
+      // Verify it's player's turn and game is in progress
+      if (game.status !== 'in-progress') {
+        toast({
+          title: "Game not ready",
+          description: "Wait for the second player to join first.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Update the game with player's choice
+      const updateData = currentUsername === game.creator_id
+        ? { creator_choice: choice }
+        : { player2_choice: choice };
+
+      const { error: updateError } = await supabase
         .from('games')
-        .select('*')
-        .eq('id', gameId)
-        .single();
+        .update(updateData)
+        .eq('id', gameId);
 
-      if (game) {
-        // If it's the creator and game is still open, show toast
-        if (game.creator_id === username && game.status === 'open') {
-          toast({
-            title: "Game not ready",
-            description: "Wait for the second player to join first.",
-            variant: "destructive",
-          });
-          return;
-        }
+      if (updateError) {
+        toast({
+          title: "Error",
+          description: "Failed to submit your choice",
+          variant: "destructive",
+        });
+        return;
       }
-    }
 
-    setPlayerChoice(choice);
-    const compChoice = getComputerChoice();
-    setComputerChoice(compChoice);
-    const gameResult = determineWinner(choice, compChoice);
-    setResult(gameResult);
-
-    // Handle game end and fund transfer
-    if (!isDemo && gameId && gameResult && gameResult !== "It's a tie!") {
-      const winner = gameResult === 'You win!' ? localStorage.getItem("username") : 'Computer';
-      if (winner) {
-        await resolveBet(gameId, winner);
-      }
+      setWaitingForOpponent(true);
+      setPlayerChoice(choice);
+    } else {
+      // Demo mode - play against computer
+      setPlayerChoice(choice);
+      const compChoice = ['rock', 'paper', 'scissors'][Math.floor(Math.random() * 3)] as Choice;
+      setOpponentChoice(compChoice);
+      setResult(determineWinner(choice, compChoice));
     }
   };
 
   const playAgain = () => {
     setPlayerChoice(null);
-    setComputerChoice(null);
+    setOpponentChoice(null);
     setResult(null);
+    setWaitingForOpponent(false);
+    if (game) {
+      // Reset game choices
+      supabase
+        .from('games')
+        .update({
+          creator_choice: null,
+          player2_choice: null,
+        })
+        .eq('id', game.id);
+    }
   };
 
   return (
@@ -148,11 +205,11 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
       <Card className="border-accent/20 bg-gradient-to-b from-slate-900 to-slate-800 shadow-2xl">
         <CardHeader className="border-b border-accent/10">
           <CardTitle className="font-game text-lg text-primary animate-glow text-center">
-            {result ? "Game Result" : "Choose Your Weapon"}
+            {result ? "Game Result" : waitingForOpponent ? "Waiting for Opponent..." : "Choose Your Weapon"}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-8">
-          {!result ? (
+          {!result && !waitingForOpponent && (
             <div className="grid grid-cols-3 gap-6">
               <Button
                 variant="outline"
@@ -179,7 +236,18 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
                 <span className="font-game">Scissors</span>
               </Button>
             </div>
-          ) : (
+          )}
+          {waitingForOpponent && !result && (
+            <div className="text-center py-8">
+              <p className="text-xl font-game text-primary animate-pulse">
+                Waiting for opponent to make their choice...
+              </p>
+              <p className="text-sm text-muted-foreground mt-2">
+                Your choice: {playerChoice}
+              </p>
+            </div>
+          )}
+          {result && (
             <div className="space-y-8 text-center">
               <div className="grid grid-cols-2 gap-8">
                 <div className="space-y-4 p-6 bg-slate-800/30 rounded-lg border border-accent/10">
@@ -187,8 +255,10 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
                   <p className="text-2xl font-game text-primary animate-glow">{playerChoice}</p>
                 </div>
                 <div className="space-y-4 p-6 bg-slate-800/30 rounded-lg border border-accent/10">
-                  <p className="text-muted-foreground font-game">Computer's Choice</p>
-                  <p className="text-2xl font-game text-primary animate-glow">{computerChoice}</p>
+                  <p className="text-muted-foreground font-game">
+                    {isDemo ? "Computer's" : "Opponent's"} Choice
+                  </p>
+                  <p className="text-2xl font-game text-primary animate-glow">{opponentChoice}</p>
                 </div>
               </div>
               <div className="space-y-6">
