@@ -2,10 +2,11 @@
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { useToast } from "@/components/ui/use-toast";
-import { Wallet, ArrowLeft, ArrowRight, Gamepad2 } from "lucide-react";
+import { Wallet, ArrowLeft, ArrowRight, Gamepad2, LogOut } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import { supabase } from "@/lib/supabase";
 
 export const GameHeader = () => {
   const [username, setUsername] = useState<string | null>(null);
@@ -22,12 +23,29 @@ export const GameHeader = () => {
   }, []);
 
   useEffect(() => {
-    // Check if we can go back (if there's history)
     setCanGoBack(location.key !== "default");
-    
-    // Check browser history state to determine if we can go forward
     setCanGoForward(window.history.state && window.history.state.idx < window.history.length - 1);
   }, [location]);
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      localStorage.removeItem("username");
+      setUsername(null);
+      toast({
+        title: "Logged out successfully",
+        description: "Come back soon!",
+      });
+      navigate("/");
+    } catch (error) {
+      console.error('Error logging out:', error);
+      toast({
+        title: "Error",
+        description: "Failed to log out",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <header className="border-b mb-8 pb-3 border-accent/20 pt-5 bg-gradient-to-r from-slate-900 to-slate-800">
@@ -81,6 +99,16 @@ export const GameHeader = () => {
             </Button>
           </Link>
           <WalletMultiButton />
+          {username && (
+            <Button 
+              variant="ghost" 
+              className="font-game gap-2 hover:bg-red-500/10 hover:text-red-500"
+              onClick={handleLogout}
+            >
+              <LogOut className="w-4 h-4" />
+              Logout
+            </Button>
+          )}
         </div>
       </div>
     </header>

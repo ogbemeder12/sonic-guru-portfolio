@@ -45,6 +45,7 @@ export type Database = {
           created_at: string
           creator_id: string
           creator_wallet: string | null
+          escrow_pubkey: string | null
           id: string
           is_demo: boolean
           status: string
@@ -56,6 +57,7 @@ export type Database = {
           created_at?: string
           creator_id: string
           creator_wallet?: string | null
+          escrow_pubkey?: string | null
           id?: string
           is_demo?: boolean
           status?: string
@@ -67,6 +69,7 @@ export type Database = {
           created_at?: string
           creator_id?: string
           creator_wallet?: string | null
+          escrow_pubkey?: string | null
           id?: string
           is_demo?: boolean
           status?: string

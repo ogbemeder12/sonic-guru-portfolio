@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,15 +17,15 @@ import { Label } from "@/components/ui/label";
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { supabase } from "@/lib/supabase";
 
 interface Game {
   id: string;
-  creator: string;
+  creator_id: string;
   amount: number;
-  maxPlayers: number;
-  currentPlayers: string[];
   status: 'open' | 'in-progress' | 'completed';
-  escrowPubkey: string;
+  escrow_pubkey: string;
+  creator_wallet: string;
 }
 
 export const OpenGames = () => {
@@ -37,17 +38,46 @@ export const OpenGames = () => {
   const { connection } = useConnection();
 
   useEffect(() => {
-    const loadGames = () => {
-      const storedGames = JSON.parse(localStorage.getItem("games") || "[]");
-      setGames(storedGames.filter((game: Game) => game.status === 'open'));
+    const fetchGames = async () => {
+      const { data, error } = await supabase
+        .from('games')
+        .select('*')
+        .eq('status', 'open')
+        .eq('is_demo', false);
+
+      if (error) {
+        console.error('Error fetching games:', error);
+        return;
+      }
+
+      setGames(data || []);
     };
 
-    loadGames();
-    const interval = setInterval(loadGames, 1000);
-    return () => clearInterval(interval);
+    fetchGames();
+
+    // Subscribe to real-time updates
+    const channel = supabase
+      .channel('games_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'games',
+          filter: "status=eq.open",
+        },
+        () => {
+          fetchGames();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  const handleJoinGame = (game: Game) => {
+  const handleJoinGame = async (game: Game) => {
     const username = localStorage.getItem("username");
     if (!username) {
       toast({
@@ -58,13 +88,12 @@ export const OpenGames = () => {
       return;
     }
 
-    // If the user is the creator of the game
-    if (game.creator === username) {
+    if (game.creator_id === username) {
       navigate(`/game?mode=multiplayer&gameId=${game.id}`);
       return;
     }
 
-    if (!connected) {
+    if (!connected || !publicKey) {
       toast({
         title: "Wallet not connected",
         description: "Please connect your wallet before joining a game",
@@ -73,49 +102,57 @@ export const OpenGames = () => {
       return;
     }
 
-    if (game.currentPlayers.includes(username)) {
+    try {
+      // Update game status in Supabase
+      const { error: updateError } = await supabase
+        .from('games')
+        .update({ 
+          status: 'in-progress'
+        })
+        .eq('id', game.id);
+
+      if (updateError) throw updateError;
+
+      const audio = new Audio("/sounds/join-game.mp4");
+      audio.play();
+
       toast({
-        title: "Already joined",
-        description: "You are already in this game",
+        title: "Game Joined!",
+        description: "You have successfully joined the game",
+      });
+
+      navigate(`/game?mode=multiplayer&gameId=${game.id}`);
+    } catch (error) {
+      console.error('Error joining game:', error);
+      toast({
+        title: "Error",
+        description: "Failed to join game",
         variant: "destructive",
       });
-      return;
     }
-
-    const allGames = JSON.parse(localStorage.getItem("games") || "[]");
-    const updatedGames = allGames.map((g: Game) => {
-      if (g.id === game.id) {
-        const updatedPlayers = [...g.currentPlayers, username];
-        return {
-          ...g,
-          currentPlayers: updatedPlayers,
-          status: updatedPlayers.length === g.maxPlayers ? 'in-progress' : 'open'
-        };
-      }
-      return g;
-    });
-
-    localStorage.setItem("games", JSON.stringify(updatedGames));
-    const audio = new Audio("/sounds/join-game.mp4");
-    audio.play();
-
-    toast({
-      title: "Game Joined!",
-      description: "You have successfully joined the game",
-    });
-
-    navigate(`/game?mode=multiplayer&gameId=${game.id}`);
   };
 
-  const handleDeleteGame = (gameId: string) => {
-    const allGames = JSON.parse(localStorage.getItem("games") || "[]");
-    const updatedGames = allGames.filter((g: Game) => g.id !== gameId);
-    localStorage.setItem("games", JSON.stringify(updatedGames));
-    
-    toast({
-      title: "Game Deleted",
-      description: "The game has been deleted successfully",
-    });
+  const handleDeleteGame = async (gameId: string) => {
+    try {
+      const { error } = await supabase
+        .from('games')
+        .delete()
+        .eq('id', gameId);
+
+      if (error) throw error;
+      
+      toast({
+        title: "Game Deleted",
+        description: "The game has been deleted successfully",
+      });
+    } catch (error) {
+      console.error('Error deleting game:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete game",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleEditGame = async (game: Game) => {
@@ -142,7 +179,7 @@ export const OpenGames = () => {
       transaction.add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
-          toPubkey: new PublicKey(game.escrowPubkey),
+          toPubkey: new PublicKey(game.escrow_pubkey),
           lamports: additionalLamports,
         })
       );
@@ -151,20 +188,16 @@ export const OpenGames = () => {
       const signature = await sendTransaction(transaction, connection);
       await connection.confirmTransaction(signature);
 
-      // Update game in localStorage
-      const allGames = JSON.parse(localStorage.getItem("games") || "[]");
-      const updatedGames = allGames.map((g: Game) => {
-        if (g.id === game.id) {
-          return {
-            ...g,
-            amount: editingGame.amount,
-            maxPlayers: editingGame.maxPlayers || g.maxPlayers,
-          };
-        }
-        return g;
-      });
+      // Update game in Supabase
+      const { error } = await supabase
+        .from('games')
+        .update({
+          amount: editingGame.amount
+        })
+        .eq('id', game.id);
 
-      localStorage.setItem("games", JSON.stringify(updatedGames));
+      if (error) throw error;
+
       setEditingGame(null);
       
       toast({
@@ -184,7 +217,7 @@ export const OpenGames = () => {
   const username = localStorage.getItem("username");
 
   const filteredGames = games.filter(game => 
-    game.creator.toLowerCase().includes(searchQuery.toLowerCase())
+    game.creator_id.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -216,16 +249,13 @@ export const OpenGames = () => {
               <Card key={game.id} className="p-4 border-slate-700">
                 <div className="flex justify-between items-center">
                   <div>
-                    <p className="font-game text-primary">{game.creator}'s Game</p>
-                    <p className="text-sm text-muted-foreground">
-                      {game.currentPlayers.length}/{game.maxPlayers} Players
-                    </p>
+                    <p className="font-game text-primary">{game.creator_id}'s Game</p>
                     <p className="text-sm text-muted-foreground">
                       {game.amount} SOL
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    {game.creator === username && (
+                    {game.creator_id === username && (
                       <>
                         <Dialog>
                           <DialogTrigger asChild>
@@ -257,18 +287,9 @@ export const OpenGames = () => {
                                   }
                                 />
                               </div>
-                              <div className="space-y-2">
-                                <Label>Max Players</Label>
-                                <Input
-                                  type="number"
-                                  value="2"
-                                  disabled
-                                  className="bg-slate-800/50 opacity-50"
-                                />
-                              </div>
                               <Button
                                 className="w-full"
-                                onClick={() => editingGame && handleEditGame(editingGame)}
+                                onClick={() => editingGame && handleEditGame(game)}
                               >
                                 Save Changes
                               </Button>
@@ -284,11 +305,8 @@ export const OpenGames = () => {
                         </Button>
                       </>
                     )}
-                    <Button 
-                      onClick={() => handleJoinGame(game)}
-                      disabled={game.currentPlayers.length === game.maxPlayers}
-                    >
-                      {game.creator === username ? 'View Game' : 'Join Game'}
+                    <Button onClick={() => handleJoinGame(game)}>
+                      {game.creator_id === username ? 'View Game' : 'Join Game'}
                     </Button>
                   </div>
                 </div>
