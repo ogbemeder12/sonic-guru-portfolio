@@ -40,16 +40,46 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
   useEffect(() => {
     if (gameId) {
       const username = localStorage.getItem("username");
-      const games = JSON.parse(localStorage.getItem("games") || "[]");
-      const currentGame = games.find((g: Game) => g.id === gameId);
-      
-      if (currentGame) {
-        if (currentGame.creator === username && currentGame.status === 'open') {
-          setShowWaitDialog(true);
-        } else if (currentGame.status === 'in-progress') {
-          setShowWaitDialog(false);
+      const fetchGameStatus = async () => {
+        const { data: game } = await supabase
+          .from('games')
+          .select('*')
+          .eq('id', gameId)
+          .single();
+        
+        if (game) {
+          if (game.creator_id === username && game.status === 'open') {
+            setShowWaitDialog(true);
+          } else if (game.status === 'in-progress') {
+            setShowWaitDialog(false);
+          }
         }
-      }
+      };
+
+      fetchGameStatus();
+
+      // Subscribe to game status changes
+      const channel = supabase
+        .channel('game_status')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'games',
+            filter: `id=eq.${gameId}`,
+          },
+          (payload) => {
+            if (payload.new.status === 'in-progress') {
+              setShowWaitDialog(false);
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [gameId]);
 
@@ -188,29 +218,26 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
     }
   };
 
-  const handleChoice = (choice: Choice) => {
-    const username = localStorage.getItem("username");
-    const games = JSON.parse(localStorage.getItem("games") || "[]");
-    const currentGame = games.find((g: Game) => g.id === gameId);
+  const handleChoice = async (choice: Choice) => {
+    if (!isDemo && gameId) {
+      const username = localStorage.getItem("username");
+      const { data: game } = await supabase
+        .from('games')
+        .select('*')
+        .eq('id', gameId)
+        .single();
 
-    // If it's the creator and game is still open, show toast
-    if (currentGame && currentGame.creator === username && currentGame.status === 'open') {
-      toast({
-        title: "Game not ready",
-        description: "Wait for the second player to join first.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Only check wallet connection if it's not a demo and the user is not already in a game
-    if (!isDemo && !gameId && !localStorage.getItem("walletConnected")) {
-      toast({
-        title: "Wallet not connected",
-        description: "Please connect your wallet to play",
-        variant: "destructive",
-      });
-      return;
+      if (game) {
+        // If it's the creator and game is still open, show toast
+        if (game.creator_id === username && game.status === 'open') {
+          toast({
+            title: "Game not ready",
+            description: "Wait for the second player to join first.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
     }
 
     setPlayerChoice(choice);

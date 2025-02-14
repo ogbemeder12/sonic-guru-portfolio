@@ -48,7 +48,10 @@ export type Database = {
           escrow_pubkey: string | null
           id: string
           is_demo: boolean
+          player2_id: string | null
+          player2_wallet: string | null
           status: string
+          total_pot: number | null
           updated_at: string
           winner: string | null
         }
@@ -60,7 +63,10 @@ export type Database = {
           escrow_pubkey?: string | null
           id?: string
           is_demo?: boolean
+          player2_id?: string | null
+          player2_wallet?: string | null
           status?: string
+          total_pot?: number | null
           updated_at?: string
           winner?: string | null
         }
@@ -72,7 +78,10 @@ export type Database = {
           escrow_pubkey?: string | null
           id?: string
           is_demo?: boolean
+          player2_id?: string | null
+          player2_wallet?: string | null
           status?: string
+          total_pot?: number | null
           updated_at?: string
           winner?: string | null
         }
