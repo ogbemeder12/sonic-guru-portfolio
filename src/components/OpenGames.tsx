@@ -32,6 +32,7 @@ export const OpenGames = () => {
   const [games, setGames] = useState<Game[]>([]);
   const [editingGame, setEditingGame] = useState<Game | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [joiningGame, setJoiningGame] = useState<string | null>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
   const { connected, publicKey, sendTransaction } = useWallet();
@@ -103,11 +104,34 @@ export const OpenGames = () => {
     }
 
     try {
-      // Update game status in Supabase
+      setJoiningGame(game.id);
+
+      // Transfer SOL to escrow
+      const escrowPubkey = new PublicKey(game.escrow_pubkey);
+      const lamports = game.amount * LAMPORTS_PER_SOL;
+
+      const transaction = new Transaction();
+      transaction.add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: escrowPubkey,
+          lamports,
+        })
+      );
+
+      // Send and confirm transaction
+      const signature = await sendTransaction(transaction, connection);
+      await connection.confirmTransaction(signature);
+
+      // Update game status
       const { error: updateError } = await supabase
         .from('games')
-        .update({ 
-          status: 'in-progress'
+        .update({
+          status: 'in-progress',
+          player2_id: username,
+          player2_wallet: publicKey.toString(),
+          player2_choice: null,
+          creator_choice: null,
         })
         .eq('id', game.id);
 
@@ -129,6 +153,8 @@ export const OpenGames = () => {
         description: "Failed to join game",
         variant: "destructive",
       });
+    } finally {
+      setJoiningGame(null);
     }
   };
 
@@ -305,8 +331,11 @@ export const OpenGames = () => {
                         </Button>
                       </>
                     )}
-                    <Button onClick={() => handleJoinGame(game)}>
-                      {game.creator_id === username ? 'View Game' : 'Join Game'}
+                    <Button 
+                      onClick={() => handleJoinGame(game)}
+                      disabled={joiningGame === game.id}
+                    >
+                      {joiningGame === game.id ? 'Joining...' : game.creator_id === username ? 'View Game' : 'Join Game'}
                     </Button>
                   </div>
                 </div>
