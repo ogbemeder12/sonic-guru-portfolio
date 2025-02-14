@@ -43,11 +43,13 @@ export type Database = {
         Row: {
           amount: number
           created_at: string
+          creator_choice: string | null
           creator_id: string
           creator_wallet: string | null
           escrow_pubkey: string | null
           id: string
           is_demo: boolean
+          player2_choice: string | null
           player2_id: string | null
           player2_wallet: string | null
           status: string
@@ -58,11 +60,13 @@ export type Database = {
         Insert: {
           amount?: number
           created_at?: string
+          creator_choice?: string | null
           creator_id: string
           creator_wallet?: string | null
           escrow_pubkey?: string | null
           id?: string
           is_demo?: boolean
+          player2_choice?: string | null
           player2_id?: string | null
           player2_wallet?: string | null
           status?: string
@@ -73,11 +77,13 @@ export type Database = {
         Update: {
           amount?: number
           created_at?: string
+          creator_choice?: string | null
           creator_id?: string
           creator_wallet?: string | null
           escrow_pubkey?: string | null
           id?: string
           is_demo?: boolean
+          player2_choice?: string | null
           player2_id?: string | null
           player2_wallet?: string | null
           status?: string
