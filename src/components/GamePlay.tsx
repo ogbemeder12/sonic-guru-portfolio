@@ -6,7 +6,6 @@ import { useToast } from "@/components/ui/use-toast";
 import { useSearchParams } from "react-router-dom";
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useRockPaperScissors } from "@/hooks/useRockPaperScissors";
-import { PublicKey } from '@solana/web3.js';
 import { supabase } from "@/lib/supabase";
 import {
   Dialog,
@@ -20,10 +19,11 @@ type Choice = 'rock' | 'paper' | 'scissors';
 
 interface Game {
   id: string;
-  creator: string;
-  creatorWallet: string;
-  currentPlayers: string[];
+  creator_id: string;
+  creator_wallet: string;
+  player2_wallet: string | null;
   status: 'open' | 'in-progress' | 'completed';
+  winner: string | null;
 }
 
 export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
@@ -100,124 +100,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
     return 'Computer wins!';
   };
 
-  const updateLeaderboard = async (winner: string, amount: number, isWinner: boolean) => {
-    const { data: existingUser, error: fetchError } = await supabase
-      .from('leaderboard')
-      .select('*')
-      .eq('username', winner)
-      .eq('is_demo', isDemo)
-      .single();
-
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      console.error('Error fetching user:', fetchError);
-      return;
-    }
-
-    const points = isWinner ? amount * 2 : 0;
-    const gamesWon = isWinner ? 1 : 0;
-
-    if (existingUser) {
-      const { error: updateError } = await supabase
-        .from('leaderboard')
-        .update({
-          points: existingUser.points + points,
-          games_won: existingUser.games_won + gamesWon,
-        })
-        .eq('id', existingUser.id);
-
-      if (updateError) {
-        console.error('Error updating leaderboard:', updateError);
-      }
-    } else {
-      const { error: insertError } = await supabase
-        .from('leaderboard')
-        .insert([
-          {
-            username: winner,
-            points: points,
-            games_won: gamesWon,
-            is_demo: isDemo,
-            wallet_address: publicKey?.toString(),
-          },
-        ]);
-
-      if (insertError) {
-        console.error('Error inserting into leaderboard:', insertError);
-      }
-    }
-  };
-
-  const handleGameEnd = async (result: string) => {
-    if (!isDemo && gameId) {
-      const games = JSON.parse(localStorage.getItem("games") || "[]");
-      const currentGame = games.find((g: Game) => g.id === gameId);
-      
-      if (currentGame) {
-        // Update game status in Supabase
-        const { error: gameUpdateError } = await supabase
-          .from('games')
-          .update({
-            status: 'completed',
-            winner: result === 'You win!' ? localStorage.getItem("username") : 'Computer',
-          })
-          .eq('id', gameId);
-
-        if (gameUpdateError) {
-          console.error('Error updating game status:', gameUpdateError);
-        }
-
-        // Update local storage
-        currentGame.status = 'completed';
-        localStorage.setItem("games", JSON.stringify(games));
-
-        // Transfer funds to winner
-        if (result === 'You win!' && publicKey) {
-          try {
-            await resolveBet(gameId, publicKey);
-            await updateLeaderboard(localStorage.getItem("username") || '', currentGame.amount, true);
-            toast({
-              title: "Funds Transferred",
-              description: "Your winnings have been sent to your wallet!",
-            });
-          } catch (error) {
-            console.error('Error transferring funds:', error);
-            toast({
-              title: "Transfer Failed",
-              description: "Failed to transfer winnings. Please contact support.",
-              variant: "destructive",
-            });
-          }
-        } else if (result === 'Computer wins!' && currentGame.creatorWallet) {
-          try {
-            await resolveBet(gameId, new PublicKey(currentGame.creatorWallet));
-            await updateLeaderboard('Computer', currentGame.amount, true);
-            toast({
-              title: "Game Ended",
-              description: "Funds have been transferred to the winner.",
-            });
-          } catch (error) {
-            console.error('Error transferring funds:', error);
-            toast({
-              title: "Transfer Failed",
-              description: "Failed to transfer funds. Please contact support.",
-              variant: "destructive",
-            });
-          }
-        }
-      }
-    } else if (isDemo) {
-      // Handle demo game results
-      const username = localStorage.getItem("username");
-      if (username && result) {
-        await updateLeaderboard(
-          username,
-          1, // Demo games always worth 1 point
-          result === 'You win!'
-        );
-      }
-    }
-  };
-
   const handleChoice = async (choice: Choice) => {
     if (!isDemo && gameId) {
       const username = localStorage.getItem("username");
@@ -245,9 +127,14 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
     setComputerChoice(compChoice);
     const gameResult = determineWinner(choice, compChoice);
     setResult(gameResult);
-    
+
     // Handle game end and fund transfer
-    handleGameEnd(gameResult);
+    if (!isDemo && gameId && gameResult && gameResult !== "It's a tie!") {
+      const winner = gameResult === 'You win!' ? localStorage.getItem("username") : 'Computer';
+      if (winner) {
+        await resolveBet(gameId, winner);
+      }
+    }
   };
 
   const playAgain = () => {
