@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CircleDot, Square, Scissors } from "lucide-react";
+import { CircleDot, Square, Scissors, Timer } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { useSearchParams } from "react-router-dom";
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -13,6 +13,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 
 type Choice = 'rock' | 'paper' | 'scissors';
@@ -30,6 +31,8 @@ interface Game {
   amount: number;
 }
 
+const CHOICE_TIMER = 30; // 30 seconds to make a choice
+
 export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
   const [playerChoice, setPlayerChoice] = useState<Choice | null>(null);
   const [opponentChoice, setOpponentChoice] = useState<Choice | null>(null);
@@ -41,10 +44,27 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
   const gameId = searchParams.get("gameId");
   const { toast } = useToast();
   const { publicKey } = useWallet();
-  const { resolveBet, joinBet } = useRockPaperScissors();
+  const { resolveBet, joinBet, createBet } = useRockPaperScissors();
   const currentUsername = localStorage.getItem("username");
   const [showResultModal, setShowResultModal] = useState(false);
   const [isWinner, setIsWinner] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(CHOICE_TIMER);
+  const [timerActive, setTimerActive] = useState(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (timerActive && timeLeft > 0) {
+      timer = setTimeout(() => {
+        setTimeLeft(prev => prev - 1);
+      }, 1000);
+    } else if (timeLeft === 0 && game?.status === 'in-progress' && !playerChoice) {
+      // Auto-select a random choice if time runs out
+      const choices: Choice[] = ['rock', 'paper', 'scissors'];
+      const randomChoice = choices[Math.floor(Math.random() * choices.length)];
+      handleChoice(randomChoice);
+    }
+    return () => clearTimeout(timer);
+  }, [timeLeft, timerActive]);
 
   useEffect(() => {
     if (gameId) {
@@ -146,7 +166,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
 
   const handleChoice = async (choice: Choice) => {
     if (!isDemo && gameId && game) {
-      // Verify it's player's turn and game is in progress
       if (game.status !== 'in-progress') {
         toast({
           title: "Game not ready",
@@ -156,7 +175,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         return;
       }
 
-      // Update the game with player's choice
       const updateData = currentUsername === game.creator_id
         ? { creator_choice: choice }
         : { player2_choice: choice };
@@ -175,10 +193,10 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         return;
       }
 
+      setTimerActive(false);
       setWaitingForOpponent(true);
       setPlayerChoice(choice);
     } else {
-      // Demo mode - play against computer
       setPlayerChoice(choice);
       const compChoice = ['rock', 'paper', 'scissors'][Math.floor(Math.random() * 3)] as Choice;
       setOpponentChoice(compChoice);
@@ -186,13 +204,38 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
     }
   };
 
+  const handleRematch = async () => {
+    if (!game || !currentUsername || !publicKey) return;
+
+    try {
+      const newGameId = await createBet(game.amount, 2);
+      if (newGameId) {
+        setShowResultModal(false);
+        window.location.href = `/game?mode=multiplayer&gameId=${newGameId}`;
+      }
+    } catch (error) {
+      console.error('Error creating rematch:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create rematch game",
+        variant: "destructive",
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (game?.status === 'in-progress' && !playerChoice) {
+      setTimeLeft(CHOICE_TIMER);
+      setTimerActive(true);
+    }
+  }, [game?.status]);
+
   const playAgain = () => {
     setPlayerChoice(null);
     setOpponentChoice(null);
     setResult(null);
     setWaitingForOpponent(false);
     if (game) {
-      // Reset game choices
       supabase
         .from('games')
         .update({
@@ -209,6 +252,12 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         <CardHeader className="border-b border-accent/10">
           <CardTitle className="font-game text-lg text-primary animate-glow text-center">
             {result ? "Game Result" : waitingForOpponent ? "Waiting for Opponent..." : "Choose Your Weapon"}
+            {timerActive && (
+              <div className="flex items-center justify-center gap-2 mt-2">
+                <Timer className="w-4 h-4 animate-pulse" />
+                <span className="text-sm">{timeLeft}s</span>
+              </div>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-8">
@@ -301,6 +350,11 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
                 : "Sorry, you lost."}
             </DialogDescription>
           </DialogHeader>
+          <DialogFooter className="flex justify-center gap-4 mt-6">
+            <Button onClick={handleRematch} className="w-full">
+              Rematch
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
