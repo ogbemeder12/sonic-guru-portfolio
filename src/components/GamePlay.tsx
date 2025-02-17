@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +43,8 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
   const { publicKey } = useWallet();
   const { resolveBet, joinBet } = useRockPaperScissors();
   const currentUsername = localStorage.getItem("username");
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [isWinner, setIsWinner] = useState(false);
 
   useEffect(() => {
     if (gameId) {
@@ -116,6 +117,8 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
                   (currentUsername === updatedGame.creator_id ? updatedGame.player2_id : updatedGame.creator_id);
                 if (winner) {
                   await resolveBet(gameId, winner);
+                  setIsWinner(winner === currentUsername);
+                  setShowResultModal(true);
                 }
               }
             }
@@ -275,6 +278,33 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         </CardContent>
       </Card>
 
+      {/* Waiting for Second Player Dialog */}
+      <Dialog open={waitingForOpponent && !result} onOpenChange={setWaitingForOpponent}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Waiting for Opponent</DialogTitle>
+            <DialogDescription>
+              Please wait for the second player to make their choice.
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+
+      {/* Game Result Dialog */}
+      <Dialog open={showResultModal} onOpenChange={setShowResultModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{isWinner ? "Congratulations!" : "Game Over"}</DialogTitle>
+            <DialogDescription>
+              {isWinner 
+                ? "Congratulations! You win!!! The betting SOL has been transferred to your wallet address." 
+                : "Sorry, you lost."}
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+
+      {/* Initial Waiting Dialog */}
       <Dialog open={showWaitDialog} onOpenChange={setShowWaitDialog}>
         <DialogContent>
           <DialogHeader>
