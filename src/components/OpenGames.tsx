@@ -65,9 +65,33 @@ export const OpenGames = () => {
           event: '*',
           schema: 'public',
           table: 'games',
-          filter: "status=eq.open",
         },
-        () => {
+        (payload) => {
+          const updatedGame = payload.new as Game;
+          
+          // Show notification when a player joins your game
+          const username = localStorage.getItem("username");
+          if (payload.eventType === 'UPDATE' && 
+              updatedGame.creator_id === username && 
+              updatedGame.status === 'in-progress' &&
+              updatedGame.player2_id) {
+            
+            // Play sound effect
+            const audio = new Audio("/sounds/join-game.mp4");
+            audio.play();
+            
+            toast({
+              title: "Player Joined!",
+              description: `${updatedGame.player2_id} has joined your game. Click to return to the game.`,
+              action: <Button 
+                variant="outline" 
+                onClick={() => window.location.href = `/game?mode=multiplayer&gameId=${updatedGame.id}`}
+              >
+                Return to Game
+              </Button>
+            });
+          }
+          
           fetchGames();
         }
       )
