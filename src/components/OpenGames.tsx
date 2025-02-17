@@ -26,6 +26,11 @@ interface Game {
   status: 'open' | 'in-progress' | 'completed';
   escrow_pubkey: string;
   creator_wallet: string;
+  player2_id?: string | null;
+  player2_wallet?: string | null;
+  creator_choice?: string | null;
+  player2_choice?: string | null;
+  winner?: string | null;
 }
 
 export const OpenGames = () => {
