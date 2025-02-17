@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,10 +38,35 @@ export const OpenGames = () => {
   const [editingGame, setEditingGame] = useState<Game | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [joiningGame, setJoiningGame] = useState<string | null>(null);
+  const [audio] = useState(new Audio("/sounds/join-game.mp4"));
   const { toast } = useToast();
   const navigate = useNavigate();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
+
+  // Initialize audio
+  useEffect(() => {
+    // Pre-load the audio
+    audio.load();
+    // Set audio properties
+    audio.volume = 0.5; // Set volume to 50%
+    
+    return () => {
+      audio.pause();
+      audio.currentTime = 0;
+    };
+  }, [audio]);
+
+  const playSound = async () => {
+    try {
+      // Reset audio to start
+      audio.currentTime = 0;
+      // Play with user interaction context
+      await audio.play();
+    } catch (error) {
+      console.log("Audio playback failed:", error);
+    }
+  };
 
   useEffect(() => {
     const fetchGames = async () => {
@@ -70,7 +96,7 @@ export const OpenGames = () => {
           schema: 'public',
           table: 'games',
         },
-        (payload) => {
+        async (payload) => {
           const updatedGame = payload.new as Game;
           
           // Show notification when a player joins your game
@@ -80,16 +106,18 @@ export const OpenGames = () => {
               updatedGame.status === 'in-progress' &&
               updatedGame.player2_id) {
             
-            // Play sound effect
-            const audio = new Audio("/sounds/join-game.mp4");
-            audio.play();
+            // Play sound with user interaction context
+            await playSound();
             
             toast({
               title: "Player Joined!",
               description: `${updatedGame.player2_id} has joined your game. Click to return to the game.`,
               action: <Button 
                 variant="outline" 
-                onClick={() => window.location.href = `/game?mode=multiplayer&gameId=${updatedGame.id}`}
+                onClick={() => {
+                  playSound(); // Play sound on button click
+                  window.location.href = `/game?mode=multiplayer&gameId=${updatedGame.id}`;
+                }}
               >
                 Return to Game
               </Button>
@@ -343,7 +371,10 @@ export const OpenGames = () => {
                               </div>
                               <Button
                                 className="w-full"
-                                onClick={() => editingGame && handleEditGame(game)}
+                                onClick={() => {
+                                  playSound();
+                                  editingGame && handleEditGame(game);
+                                }}
                               >
                                 Save Changes
                               </Button>
@@ -360,7 +391,10 @@ export const OpenGames = () => {
                       </>
                     )}
                     <Button 
-                      onClick={() => handleJoinGame(game)}
+                      onClick={() => {
+                        playSound();
+                        handleJoinGame(game);
+                      }}
                       disabled={joiningGame === game.id}
                     >
                       {joiningGame === game.id ? 'Joining...' : game.creator_id === username ? 'View Game' : 'Join Game'}

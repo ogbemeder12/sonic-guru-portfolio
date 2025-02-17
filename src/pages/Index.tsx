@@ -1,3 +1,4 @@
+
 import { CreateBet } from "@/components/CreateBet";
 import { OpenGames } from "@/components/OpenGames";
 import { UserRegistration } from "@/components/UserRegistration";
@@ -12,16 +13,6 @@ const Index = () => {
     setIsRegistered(!!username);
   }, []);
 
-  useEffect(() => {
-    const audio = new Audio("/sounds/join-game.mp4");
-    audio.loop = true; // Keeps playing in a loop
-    audio.play().catch((error) => console.log("Autoplay prevented:", error));
-
-    return () => {
-      audio.pause();
-      audio.currentTime = 0; // Reset audio to the beginning
-    };
-  }, []);
   return (
     <Layout>
       <main className="container py-8">
