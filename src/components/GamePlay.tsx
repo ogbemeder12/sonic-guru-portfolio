@@ -31,7 +31,7 @@ interface Game {
   amount: number;
 }
 
-const CHOICE_TIMER = 30; // 30 seconds to make a choice
+const CHOICE_TIMER = 60; // 1 minute to make a choice
 
 export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
   const [playerChoice, setPlayerChoice] = useState<Choice | null>(null);
@@ -57,14 +57,40 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
       timer = setTimeout(() => {
         setTimeLeft(prev => prev - 1);
       }, 1000);
-    } else if (timeLeft === 0 && game?.status === 'in-progress' && !playerChoice) {
-      // Auto-select a random choice if time runs out
-      const choices: Choice[] = ['rock', 'paper', 'scissors'];
-      const randomChoice = choices[Math.floor(Math.random() * choices.length)];
-      handleChoice(randomChoice);
+    } else if (timeLeft === 0 && game?.status === 'in-progress') {
+      handleTimeUp();
     }
     return () => clearTimeout(timer);
   }, [timeLeft, timerActive]);
+
+  const handleTimeUp = async () => {
+    if (!game || !gameId) return;
+
+    const creatorHasChoice = Boolean(game.creator_choice);
+    const player2HasChoice = Boolean(game.player2_choice);
+
+    if (creatorHasChoice !== player2HasChoice) {
+      const winner = creatorHasChoice ? game.creator_id : game.player2_id;
+      if (winner) {
+        await resolveBet(gameId, winner);
+        setIsWinner(winner === currentUsername);
+        setShowResultModal(true);
+        toast({
+          title: "Game Ended",
+          description: winner === currentUsername 
+            ? "You win! Your opponent didn't make a choice in time." 
+            : "You lost! You didn't make a choice in time.",
+        });
+      }
+    } else if (!creatorHasChoice && !player2HasChoice) {
+      toast({
+        title: "Game Draw",
+        description: "Neither player made a choice in time.",
+      });
+    }
+    
+    setTimerActive(false);
+  };
 
   useEffect(() => {
     if (gameId) {
@@ -82,7 +108,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
           } else if (gameData.status === 'in-progress') {
             setShowWaitDialog(false);
             
-            // Check if we need to wait for opponent's choice
             if (gameData.creator_id === currentUsername && !gameData.player2_choice) {
               setWaitingForOpponent(true);
             } else if (gameData.player2_id === currentUsername && !gameData.creator_choice) {
@@ -94,7 +119,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
 
       fetchGameStatus();
 
-      // Subscribe to game status changes
       const channel = supabase
         .channel('game_status')
         .on(
@@ -113,7 +137,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
               setShowWaitDialog(false);
             }
 
-            // Check if both players have made their choices
             if (updatedGame.creator_choice && updatedGame.player2_choice) {
               setWaitingForOpponent(false);
               const result = determineWinner(
@@ -255,7 +278,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
             {timerActive && (
               <div className="flex items-center justify-center gap-2 mt-2">
                 <Timer className="w-4 h-4 animate-pulse" />
-                <span className="text-sm">{timeLeft}s</span>
+                <span className="text-sm">{Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</span>
               </div>
             )}
           </CardTitle>
@@ -327,7 +350,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         </CardContent>
       </Card>
 
-      {/* Waiting for Second Player Dialog */}
       <Dialog open={waitingForOpponent && !result} onOpenChange={setWaitingForOpponent}>
         <DialogContent>
           <DialogHeader>
@@ -339,7 +361,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         </DialogContent>
       </Dialog>
 
-      {/* Game Result Dialog */}
       <Dialog open={showResultModal} onOpenChange={setShowResultModal}>
         <DialogContent>
           <DialogHeader>
@@ -358,7 +379,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         </DialogContent>
       </Dialog>
 
-      {/* Initial Waiting Dialog */}
       <Dialog open={showWaitDialog} onOpenChange={setShowWaitDialog}>
         <DialogContent>
           <DialogHeader>
