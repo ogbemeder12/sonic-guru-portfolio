@@ -54,6 +54,35 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
   const [showChoiceReminder, setShowChoiceReminder] = useState(false);
 
   useEffect(() => {
+    if (gameId && currentUsername) {
+      const checkExistingChoice = async () => {
+        const { data: gameData } = await supabase
+          .from('games')
+          .select('*')
+          .eq('id', gameId)
+          .single();
+
+        if (gameData) {
+          if (currentUsername === gameData.creator_id && gameData.creator_choice) {
+            setPlayerChoice(gameData.creator_choice);
+            setWaitingForOpponentChoice(true);
+          } else if (currentUsername === gameData.player2_id && gameData.player2_choice) {
+            setPlayerChoice(gameData.player2_choice);
+            setWaitingForOpponentChoice(true);
+          }
+
+          if (gameData.status === 'in-progress') {
+            setTimeLeft(CHOICE_TIMER);
+            setTimerActive(true);
+          }
+        }
+      };
+
+      checkExistingChoice();
+    }
+  }, [gameId, currentUsername]);
+
+  useEffect(() => {
     let timer: NodeJS.Timeout;
     if (timerActive && timeLeft > 0) {
       timer = setTimeout(() => {
@@ -103,6 +132,15 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         await resolveBet(gameId, winner);
         setIsWinner(winner === currentUsername);
         setShowResultModal(true);
+
+        await supabase
+          .from('games')
+          .update({
+            status: 'completed',
+            winner: winner
+          })
+          .eq('id', gameId);
+
         toast({
           title: "Game Ended",
           description: winner === currentUsername 
@@ -210,6 +248,19 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
 
   const handleChoice = async (choice: Choice) => {
     if (!isDemo && gameId && game) {
+      const hasExistingChoice = currentUsername === game.creator_id 
+        ? game.creator_choice 
+        : game.player2_choice;
+
+      if (hasExistingChoice) {
+        toast({
+          title: "Choice already made",
+          description: "You cannot change your choice once it's made.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       if (game.status !== 'in-progress' && game.status !== 'open') {
         toast({
           title: "Game not active",
@@ -240,7 +291,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         return;
       }
 
-      setTimerActive(false);
+      setTimerActive(true);
       setShowChoiceReminder(false);
       setWaitingForOpponentChoice(true);
       setPlayerChoice(choice);
@@ -248,6 +299,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
       toast({
         title: "Choice Made!",
         description: "Waiting for your opponent to make their choice.",
+        variant: "default",
       });
     } else {
       setPlayerChoice(choice);
