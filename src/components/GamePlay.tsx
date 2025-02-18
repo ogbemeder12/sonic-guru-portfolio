@@ -89,7 +89,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
       toast({
         title: "Game Restarted",
         description: "Neither player made a choice. The game has been restarted.",
-        variant: "warning",
+        variant: "default",
       });
 
       setPlayerChoice(null);
@@ -108,6 +108,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
           description: winner === currentUsername 
             ? "You win! Your opponent didn't make a choice in time." 
             : "You lost! You didn't make a choice in time.",
+          variant: "destructive",
         });
       }
     }
@@ -153,7 +154,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
               toast({
                 title: "Make Your Choice!",
                 description: "Please select rock, paper, or scissors to play.",
-                variant: "warning",
+                variant: "default",
               });
             }
 
