@@ -1,3 +1,4 @@
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,9 +33,8 @@ interface Game {
 
 export const CreateBet = () => {
   const [amount, setAmount] = useState<string>('0.1');
-  const [showWaitDialog, setShowWaitDialog] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
   const [showConnectWallet, setShowConnectWallet] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
   const { connected, publicKey, sendTransaction } = useWallet();
@@ -199,17 +199,6 @@ export const CreateBet = () => {
           </form>
         </CardContent>
       </Card>
-
-      <Dialog open={showWaitDialog} onOpenChange={setShowWaitDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Waiting for Players</DialogTitle>
-            <DialogDescription>
-              Please wait for the second player to join the game before you can start playing.
-            </DialogDescription>
-          </DialogHeader>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={showConnectWallet} onOpenChange={setShowConnectWallet}>
         <DialogContent>

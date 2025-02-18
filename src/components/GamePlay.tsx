@@ -50,6 +50,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
   const [isWinner, setIsWinner] = useState(false);
   const [timeLeft, setTimeLeft] = useState(CHOICE_TIMER);
   const [timerActive, setTimerActive] = useState(false);
+  const [waitingForOpponentChoice, setWaitingForOpponentChoice] = useState(false);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -189,10 +190,10 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
 
   const handleChoice = async (choice: Choice) => {
     if (!isDemo && gameId && game) {
-      if (game.status !== 'in-progress') {
+      if (game.status !== 'in-progress' && game.status !== 'open') {
         toast({
-          title: "Game not ready",
-          description: "Wait for the second player to join first.",
+          title: "Game not active",
+          description: "This game has ended.",
           variant: "destructive",
         });
         return;
@@ -217,8 +218,12 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
       }
 
       setTimerActive(false);
-      setWaitingForOpponent(true);
+      setWaitingForOpponentChoice(true);
       setPlayerChoice(choice);
+
+      if (!game.creator_choice || !game.player2_choice) {
+        setShowWaitDialog(true);
+      }
     } else {
       setPlayerChoice(choice);
       const compChoice = ['rock', 'paper', 'scissors'][Math.floor(Math.random() * 3)] as Choice;
@@ -350,12 +355,12 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         </CardContent>
       </Card>
 
-      <Dialog open={waitingForOpponent && !result} onOpenChange={setWaitingForOpponent}>
+      <Dialog open={waitingForOpponentChoice && showWaitDialog} onOpenChange={setShowWaitDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Waiting for Opponent</DialogTitle>
+            <DialogTitle>Waiting for Opponent's Choice</DialogTitle>
             <DialogDescription>
-              Please wait for the second player to make their choice.
+              Please wait for your opponent to make their choice before the winner can be determined.
             </DialogDescription>
           </DialogHeader>
         </DialogContent>
