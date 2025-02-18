@@ -153,7 +153,7 @@ export const CreateBet = () => {
 
   return (
     <>
-      <Card className="border-slate-800">
+      <Card className="border-slate-800 create-bet-section">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="font-game text-lg text-primary">Create Bet</CardTitle>
           <GameInstructions />

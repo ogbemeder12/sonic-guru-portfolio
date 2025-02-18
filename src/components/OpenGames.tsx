@@ -1,10 +1,9 @@
-
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import { useNavigate } from "react-router-dom";
-import { Pencil, Trash2, Search } from "lucide-react";
+import { Pencil, Trash2, Search, Coins, Clock, UserPlus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +17,13 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { supabase } from "@/lib/supabase";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface Game {
   id: string;
@@ -43,30 +49,8 @@ export const OpenGames = () => {
   const navigate = useNavigate();
   const { connected, publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
-
-  // Initialize audio
-  useEffect(() => {
-    // Pre-load the audio
-    audio.load();
-    // Set audio properties
-    audio.volume = 0.5; // Set volume to 50%
-    
-    return () => {
-      audio.pause();
-      audio.currentTime = 0;
-    };
-  }, [audio]);
-
-  const playSound = async () => {
-    try {
-      // Reset audio to start
-      audio.currentTime = 0;
-      // Play with user interaction context
-      await audio.play();
-    } catch (error) {
-      console.log("Audio playback failed:", error);
-    }
-  };
+  const [sortBy, setSortBy] = useState<'newest' | 'amount'>('newest');
+  const [showMyGamesOnly, setShowMyGamesOnly] = useState(false);
 
   useEffect(() => {
     const fetchGames = async () => {
@@ -86,7 +70,6 @@ export const OpenGames = () => {
 
     fetchGames();
 
-    // Subscribe to real-time updates
     const channel = supabase
       .channel('games_changes')
       .on(
@@ -99,14 +82,12 @@ export const OpenGames = () => {
         async (payload) => {
           const updatedGame = payload.new as Game;
           
-          // Show notification when a player joins your game
           const username = localStorage.getItem("username");
           if (payload.eventType === 'UPDATE' && 
               updatedGame.creator_id === username && 
               updatedGame.status === 'in-progress' &&
               updatedGame.player2_id) {
             
-            // Play sound with user interaction context
             await playSound();
             
             toast({
@@ -115,7 +96,7 @@ export const OpenGames = () => {
               action: <Button 
                 variant="outline" 
                 onClick={() => {
-                  playSound(); // Play sound on button click
+                  playSound();
                   window.location.href = `/game?mode=multiplayer&gameId=${updatedGame.id}`;
                 }}
               >
@@ -133,6 +114,24 @@ export const OpenGames = () => {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  const playSound = async () => {
+    try {
+      audio.currentTime = 0;
+      await audio.play();
+    } catch (error) {
+      console.log("Audio playback failed:", error);
+    }
+  };
+
+  const handleCopyGameLink = (gameId: string) => {
+    const gameUrl = `${window.location.origin}/game?mode=multiplayer&gameId=${gameId}`;
+    navigator.clipboard.writeText(gameUrl);
+    toast({
+      title: "Link Copied!",
+      description: "Share this link with your friends to invite them to play.",
+    });
+  };
 
   const handleJoinGame = async (game: Game) => {
     const username = localStorage.getItem("username");
@@ -162,7 +161,6 @@ export const OpenGames = () => {
     try {
       setJoiningGame(game.id);
 
-      // Transfer SOL to escrow
       const escrowPubkey = new PublicKey(game.escrow_pubkey);
       const lamports = game.amount * LAMPORTS_PER_SOL;
 
@@ -175,11 +173,9 @@ export const OpenGames = () => {
         })
       );
 
-      // Send and confirm transaction
       const signature = await sendTransaction(transaction, connection);
       await connection.confirmTransaction(signature);
 
-      // Update game status
       const { error: updateError } = await supabase
         .from('games')
         .update({
@@ -241,7 +237,6 @@ export const OpenGames = () => {
     if (!editingGame || !publicKey) return;
 
     try {
-      // Calculate additional amount needed
       const additionalAmount = editingGame.amount - game.amount;
       
       if (additionalAmount <= 0) {
@@ -253,10 +248,8 @@ export const OpenGames = () => {
         return;
       }
 
-      // Convert to lamports
       const additionalLamports = additionalAmount * LAMPORTS_PER_SOL;
 
-      // Create transaction to transfer additional funds
       const transaction = new Transaction();
       transaction.add(
         SystemProgram.transfer({
@@ -266,11 +259,9 @@ export const OpenGames = () => {
         })
       );
 
-      // Send transaction
       const signature = await sendTransaction(transaction, connection);
       await connection.confirmTransaction(signature);
 
-      // Update game in Supabase
       const { error } = await supabase
         .from('games')
         .update({
@@ -298,110 +289,202 @@ export const OpenGames = () => {
 
   const username = localStorage.getItem("username");
 
-  const filteredGames = games.filter(game => 
-    game.creator_id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredGames = games
+    .filter(game => {
+      if (showMyGamesOnly) {
+        return game.creator_id === username;
+      }
+      return game.creator_id.toLowerCase().includes(searchQuery.toLowerCase());
+    })
+    .sort((a, b) => {
+      if (sortBy === 'amount') {
+        return b.amount - a.amount;
+      }
+      return b.id.localeCompare(a.id);
+    });
 
   return (
     <Card className="border-slate-800">
       <CardHeader>
-        <div className="flex justify-between items-center">
-          <CardTitle className="font-game text-lg text-primary">Open Games</CardTitle>
-          <div className="flex gap-2 items-center">
-            <Input
-              placeholder="Search by creator..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-[200px]"
-            />
-            <Button variant="ghost" size="icon">
-              <Search className="h-4 w-4" />
+        <div className="flex flex-col space-y-4">
+          <div className="flex justify-between items-center">
+            <CardTitle className="font-game text-lg text-primary">
+              Open Games
+              <Badge variant="secondary" className="ml-2">
+                {filteredGames.length}
+              </Badge>
+            </CardTitle>
+            <div className="flex gap-2 items-center">
+              <Input
+                placeholder="Search by creator..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-[200px]"
+              />
+              <Button variant="ghost" size="icon">
+                <Search className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex justify-between items-center">
+            <div className="flex gap-2">
+              <Button
+                variant={sortBy === 'newest' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setSortBy('newest')}
+              >
+                <Clock className="w-4 h-4 mr-1" />
+                Newest
+              </Button>
+              <Button
+                variant={sortBy === 'amount' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setSortBy('amount')}
+              >
+                <Coins className="w-4 h-4 mr-1" />
+                Highest Bet
+              </Button>
+            </div>
+            <Button
+              variant={showMyGamesOnly ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowMyGamesOnly(!showMyGamesOnly)}
+            >
+              {showMyGamesOnly ? 'Show All Games' : 'My Games'}
             </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent>
         {filteredGames.length === 0 ? (
-          <p className="text-muted-foreground text-center py-8">
-            {searchQuery ? "No games found for this creator" : "No open games available. Create one!"}
-          </p>
+          <div className="text-center py-8 space-y-4">
+            <p className="text-muted-foreground">
+              {showMyGamesOnly 
+                ? "You haven't created any games yet." 
+                : searchQuery 
+                  ? "No games found for this creator" 
+                  : "No open games available."}
+            </p>
+            {!showMyGamesOnly && (
+              <Button
+                onClick={() => {
+                  const createBetElement = document.querySelector('.create-bet-section');
+                  createBetElement?.scrollIntoView({ behavior: 'smooth' });
+                }}
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                Create New Game
+              </Button>
+            )}
+          </div>
         ) : (
           <div className="space-y-4">
             {filteredGames.map((game) => (
-              <Card key={game.id} className="p-4 border-slate-700">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="font-game text-primary">{game.creator_id}'s Game</p>
-                    <p className="text-sm text-muted-foreground">
-                      {game.amount} SOL
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    {game.creator_id === username && (
-                      <>
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => setEditingGame(game)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Edit Game</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4 py-4">
-                              <div className="space-y-2">
-                                <Label>Bet Amount (SOL)</Label>
-                                <Input
-                                  type="number"
-                                  min={game.amount}
-                                  step="0.1"
-                                  value={editingGame?.amount}
-                                  onChange={(e) =>
-                                    setEditingGame(prev => prev ? {
-                                      ...prev,
-                                      amount: parseFloat(e.target.value)
-                                    } : null)
-                                  }
-                                />
-                              </div>
+              <TooltipProvider key={game.id}>
+                <Card className="p-4 border-slate-700 hover:border-primary/50 transition-colors">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="font-game text-primary">{game.creator_id}'s Game</p>
+                      <div className="flex items-center gap-2">
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Badge variant="outline" className="cursor-help">
+                              <Coins className="w-3 h-3 mr-1" />
+                              {game.amount} SOL
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Required bet amount to join</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        {game.creator_id === username && (
+                          <Badge variant="secondary">Your Game</Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {game.creator_id === username && (
+                        <>
+                          <Dialog>
+                            <DialogTrigger asChild>
                               <Button
-                                className="w-full"
-                                onClick={() => {
-                                  playSound();
-                                  editingGame && handleEditGame(game);
-                                }}
+                                variant="outline"
+                                size="icon"
+                                onClick={() => setEditingGame(game)}
                               >
-                                Save Changes
+                                <Pencil className="h-4 w-4" />
                               </Button>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-                        <Button
-                          variant="destructive"
-                          size="icon"
-                          onClick={() => handleDeleteGame(game.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </>
-                    )}
-                    <Button 
-                      onClick={() => {
-                        playSound();
-                        handleJoinGame(game);
-                      }}
-                      disabled={joiningGame === game.id}
-                    >
-                      {joiningGame === game.id ? 'Joining...' : game.creator_id === username ? 'View Game' : 'Join Game'}
-                    </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Edit Game</DialogTitle>
+                              </DialogHeader>
+                              <div className="space-y-4 py-4">
+                                <div className="space-y-2">
+                                  <Label>Bet Amount (SOL)</Label>
+                                  <Input
+                                    type="number"
+                                    min={game.amount}
+                                    step="0.1"
+                                    value={editingGame?.amount}
+                                    onChange={(e) =>
+                                      setEditingGame(prev => prev ? {
+                                        ...prev,
+                                        amount: parseFloat(e.target.value)
+                                      } : null)
+                                    }
+                                  />
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    className="flex-1"
+                                    onClick={() => {
+                                      playSound();
+                                      editingGame && handleEditGame(game);
+                                    }}
+                                  >
+                                    Save Changes
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => handleCopyGameLink(game.id)}
+                                  >
+                                    Share Link
+                                  </Button>
+                                </div>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <Button
+                                variant="destructive"
+                                size="icon"
+                                onClick={() => handleDeleteGame(game.id)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Delete game</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </>
+                      )}
+                      <Button 
+                        onClick={() => {
+                          playSound();
+                          handleJoinGame(game);
+                        }}
+                        disabled={joiningGame === game.id}
+                        className="min-w-[100px]"
+                      >
+                        {joiningGame === game.id ? 'Joining...' : game.creator_id === username ? 'View Game' : 'Join Game'}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </Card>
+                </Card>
+              </TooltipProvider>
             ))}
           </div>
         )}
