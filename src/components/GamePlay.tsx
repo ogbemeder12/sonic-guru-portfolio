@@ -51,6 +51,7 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
   const [timeLeft, setTimeLeft] = useState(CHOICE_TIMER);
   const [timerActive, setTimerActive] = useState(false);
   const [waitingForOpponentChoice, setWaitingForOpponentChoice] = useState(false);
+  const [showChoiceReminder, setShowChoiceReminder] = useState(false);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -61,6 +62,11 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
     } else if (timeLeft === 0 && game?.status === 'in-progress') {
       handleTimeUp();
     }
+
+    if (timeLeft === CHOICE_TIMER - 10 && !playerChoice) {
+      setShowChoiceReminder(true);
+    }
+
     return () => clearTimeout(timer);
   }, [timeLeft, timerActive]);
 
@@ -70,7 +76,28 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
     const creatorHasChoice = Boolean(game.creator_choice);
     const player2HasChoice = Boolean(game.player2_choice);
 
-    if (creatorHasChoice !== player2HasChoice) {
+    if (!creatorHasChoice && !player2HasChoice) {
+      await supabase
+        .from('games')
+        .update({
+          creator_choice: null,
+          player2_choice: null,
+          status: 'in-progress'
+        })
+        .eq('id', gameId);
+
+      toast({
+        title: "Game Restarted",
+        description: "Neither player made a choice. The game has been restarted.",
+        variant: "warning",
+      });
+
+      setPlayerChoice(null);
+      setOpponentChoice(null);
+      setResult(null);
+      setTimeLeft(CHOICE_TIMER);
+      setTimerActive(true);
+    } else if (creatorHasChoice !== player2HasChoice) {
       const winner = creatorHasChoice ? game.creator_id : game.player2_id;
       if (winner) {
         await resolveBet(gameId, winner);
@@ -83,11 +110,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
             : "You lost! You didn't make a choice in time.",
         });
       }
-    } else if (!creatorHasChoice && !player2HasChoice) {
-      toast({
-        title: "Game Draw",
-        description: "Neither player made a choice in time.",
-      });
     }
     
     setTimerActive(false);
@@ -104,16 +126,9 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         
         if (gameData) {
           setGame(gameData);
-          if (gameData.creator_id === currentUsername && gameData.status === 'open') {
-            setShowWaitDialog(true);
-          } else if (gameData.status === 'in-progress') {
-            setShowWaitDialog(false);
-            
-            if (gameData.creator_id === currentUsername && !gameData.player2_choice) {
-              setWaitingForOpponent(true);
-            } else if (gameData.player2_id === currentUsername && !gameData.creator_choice) {
-              setWaitingForOpponent(true);
-            }
+          if (gameData.status === 'in-progress' || gameData.status === 'open') {
+            setTimeLeft(CHOICE_TIMER);
+            setTimerActive(true);
           }
         }
       };
@@ -134,8 +149,12 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
             const updatedGame = payload.new as Game;
             setGame(updatedGame);
             
-            if (updatedGame.status === 'in-progress') {
-              setShowWaitDialog(false);
+            if (!playerChoice && (updatedGame.status === 'in-progress' || updatedGame.status === 'open')) {
+              toast({
+                title: "Make Your Choice!",
+                description: "Please select rock, paper, or scissors to play.",
+                variant: "warning",
+              });
             }
 
             if (updatedGame.creator_choice && updatedGame.player2_choice) {
@@ -199,9 +218,12 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         return;
       }
 
-      const updateData = currentUsername === game.creator_id
-        ? { creator_choice: choice }
-        : { player2_choice: choice };
+      const updateData = {
+        ...(currentUsername === game.creator_id 
+          ? { creator_choice: choice }
+          : { player2_choice: choice }),
+        status: 'in-progress'
+      };
 
       const { error: updateError } = await supabase
         .from('games')
@@ -218,12 +240,14 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
       }
 
       setTimerActive(false);
+      setShowChoiceReminder(false);
       setWaitingForOpponentChoice(true);
       setPlayerChoice(choice);
-
-      if (!game.creator_choice || !game.player2_choice) {
-        setShowWaitDialog(true);
-      }
+      
+      toast({
+        title: "Choice Made!",
+        description: "Waiting for your opponent to make their choice.",
+      });
     } else {
       setPlayerChoice(choice);
       const compChoice = ['rock', 'paper', 'scissors'][Math.floor(Math.random() * 3)] as Choice;
@@ -283,34 +307,39 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
             {timerActive && (
               <div className="flex items-center justify-center gap-2 mt-2">
                 <Timer className="w-4 h-4 animate-pulse" />
-                <span className="text-sm">{Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</span>
+                <span className="text-sm font-bold text-yellow-500">
+                  {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+                </span>
               </div>
             )}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-8">
-          {!result && !waitingForOpponent && (
+          {!result && (
             <div className="grid grid-cols-3 gap-6">
               <Button
                 variant="outline"
-                className="flex flex-col items-center p-8 hover:bg-accent hover:text-accent-foreground transition-all transform hover:scale-105 bg-slate-800/50 border-accent/20"
+                className={`flex flex-col items-center p-8 hover:bg-accent hover:text-accent-foreground transition-all transform hover:scale-105 bg-slate-800/50 border-accent/20 ${playerChoice === 'rock' ? 'ring-2 ring-primary' : ''}`}
                 onClick={() => handleChoice('rock')}
+                disabled={!!playerChoice}
               >
                 <CircleDot className="w-12 h-12 mb-2 animate-glow" />
                 <span className="font-game">Rock</span>
               </Button>
               <Button
                 variant="outline"
-                className="flex flex-col items-center p-8 hover:bg-accent hover:text-accent-foreground transition-all transform hover:scale-105 bg-slate-800/50 border-accent/20"
+                className={`flex flex-col items-center p-8 hover:bg-accent hover:text-accent-foreground transition-all transform hover:scale-105 bg-slate-800/50 border-accent/20 ${playerChoice === 'paper' ? 'ring-2 ring-primary' : ''}`}
                 onClick={() => handleChoice('paper')}
+                disabled={!!playerChoice}
               >
                 <Square className="w-12 h-12 mb-2 animate-glow" />
                 <span className="font-game">Paper</span>
               </Button>
               <Button
                 variant="outline"
-                className="flex flex-col items-center p-8 hover:bg-accent hover:text-accent-foreground transition-all transform hover:scale-105 bg-slate-800/50 border-accent/20"
+                className={`flex flex-col items-center p-8 hover:bg-accent hover:text-accent-foreground transition-all transform hover:scale-105 bg-slate-800/50 border-accent/20 ${playerChoice === 'scissors' ? 'ring-2 ring-primary' : ''}`}
                 onClick={() => handleChoice('scissors')}
+                disabled={!!playerChoice}
               >
                 <Scissors className="w-12 h-12 mb-2 animate-glow" />
                 <span className="font-game">Scissors</span>
@@ -355,12 +384,23 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
         </CardContent>
       </Card>
 
-      <Dialog open={waitingForOpponentChoice && showWaitDialog} onOpenChange={setShowWaitDialog}>
+      <Dialog open={showChoiceReminder} onOpenChange={setShowChoiceReminder}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Waiting for Opponent's Choice</DialogTitle>
+            <DialogTitle>Make Your Choice!</DialogTitle>
             <DialogDescription>
-              Please wait for your opponent to make their choice before the winner can be determined.
+              Please select rock, paper, or scissors. You have {timeLeft} seconds remaining to make your choice.
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showWaitDialog} onOpenChange={setShowWaitDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Waiting for Players</DialogTitle>
+            <DialogDescription>
+              Please wait for the second player to join the game before you can start playing.
             </DialogDescription>
           </DialogHeader>
         </DialogContent>
@@ -381,17 +421,6 @@ export const GamePlay = ({ isDemo = false }: { isDemo?: boolean }) => {
               Rematch
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showWaitDialog} onOpenChange={setShowWaitDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Waiting for Players</DialogTitle>
-            <DialogDescription>
-              Please wait for the second player to join the game before you can start playing.
-            </DialogDescription>
-          </DialogHeader>
         </DialogContent>
       </Dialog>
     </>
